@@ -27,46 +27,54 @@ function App() {
     const confirmarEnvio = async () => {
         try {
             const resp = await enviarServos(angulo, tension);
-            console.log("Respuesta completa del backend:", resp);
-            alert(resp);
+            console.log("Respuesta del backend:", resp);
             setConfirmado(true);
         } catch (e) {
-            console.error("Error al enviar al backend:", e);
             alert("Error enviando datos");
         }
     };
 
-
     return (
-        <div style={{ textAlign: "center", padding: "40px" }}>
-            <h1>Control del Lanzador</h1>
+        <div
+            style={{
+                textAlign: "center",
+                padding: "50px",
+                fontFamily: "Arial, sans-serif",
+                background: "#f5f6fa",
+                minHeight: "100vh",
+            }}
+        >
+            <h1 style={{ color: "#2f3640" }}>Control del Lanzador</h1>
 
-            <div style={{ margin: "20px" }}>
-                <label>Ángulo: {angulo}°</label>
+            <div style={{ margin: "40px auto", width: "80%", maxWidth: "400px" }}>
+                <label style={{ display: "block", marginBottom: "10px", fontSize: "18px" }}>
+                    Ángulo: <strong>{angulo}°</strong>
+                </label>
                 <input
                     type="range"
                     min="0"
                     max="90"
                     value={angulo}
                     onChange={(e) => setAngulo(e.target.value)}
-                    style={{ width: "300px", marginLeft: "10px" }}
+                    style={{ width: "100%" }}
                 />
             </div>
 
-            <div style={{ margin: "20px" }}>
+            <div style={{ margin: "40px auto" }}>
                 <button
                     onMouseDown={iniciarTension}
                     onMouseUp={soltarTension}
                     onMouseLeave={soltarTension}
                     disabled={tensionando}
                     style={{
-                        padding: "15px 30px",
+                        padding: "15px 35px",
                         fontSize: "18px",
                         cursor: "pointer",
                         background: tensionando ? "#aaa" : "#007bff",
                         color: "white",
                         border: "none",
                         borderRadius: "10px",
+                        transition: "0.2s",
                     }}
                 >
                     {tensionando ? `Tensionando... ${contador}s` : "Oprime para tensionar"}
@@ -74,17 +82,19 @@ function App() {
             </div>
 
             {!tensionando && tension > 0 && !confirmado && (
-                <div style={{ marginTop: "20px" }}>
-                    <p>Tensión registrada: {tension} segundos</p>
+                <div style={{ marginTop: "25px" }}>
+                    <p style={{ fontSize: "18px" }}>Tensión registrada: <strong>{tension} segundos</strong></p>
                     <button
                         onClick={confirmarEnvio}
                         style={{
-                            padding: "10px 25px",
+                            padding: "12px 30px",
                             fontSize: "16px",
                             background: "green",
                             color: "white",
                             border: "none",
                             borderRadius: "8px",
+                            cursor: "pointer",
+                            marginTop: "10px",
                         }}
                     >
                         Enviar
@@ -92,7 +102,11 @@ function App() {
                 </div>
             )}
 
-            {confirmado && <p style={{ color: "green" }}>Comando enviado correctamente</p>}
+            {confirmado && (
+                <p style={{ color: "green", marginTop: "20px", fontSize: "18px" }}>
+                    Comando enviado correctamente
+                </p>
+            )}
         </div>
     );
 }
