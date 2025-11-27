@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer, ScatterChart, Scatter, Cell, BarChart, Bar } from 'recharts';
+// Incluimos BarChart y Bar para la nueva gráfica
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
 const API_URL = "http://localhost:8080/control";
 
@@ -12,15 +13,17 @@ function App() {
     const [confirmado, setConfirmado] = useState(false);
     const intervalRef = useRef(null);
     const [impacto, setImpacto] = useState(false);
+
+    // --- ESTADO ACTUALIZADO: Gráfica Activa ---
     const [graficoActivo, setGraficoActivo] = useState('trayectoria');
 
-    // --- HISTORIAL DE DISPAROS ---
+    // --- HISTORIAL DE DISPAROS (Almacena alcances teóricos y reales) ---
     const [historialDisparos, setHistorialDisparos] = useState([]);
 
-    // --- NUEVO ESTADO: PARÁMETROS FÍSICOS ---
+    // --- ESTADO: PARÁMETROS FÍSICOS ---
     const [parametros, setParametros] = useState({
         constanteResorte: 130.4, // N/m
-        distanciaFSR: 100, // cm
+        distanciaFSR: 100, // cm (Este es el ALCANCE REAL asumido si hay impacto)
         masaProyectil: 50, // gramos
         gravedad: 9.81, // m/s²
         alturaInicial: 0 // metros
@@ -39,15 +42,20 @@ function App() {
             if (event.data === "Impacto detectado") {
                 setImpacto(true);
 
-                // Guardar disparo real en el historial
+                // --- RESOLUCIÓN DE CÓMO GUARDAR LO REAL Y LO TEÓRICO ---
+                const trayectoriaActual = calcularTrayectoria();
+
                 const nuevoDisparo = {
+                    id: historialDisparos.length + 1,
                     angulo,
                     tension,
-                    alcanceTeorico: trayectoria.alcance,
-                    alcanceReal: parametros.distanciaFSR, // Asumimos que impactó en el FSR
+                    alcanceTeorico: trayectoriaActual.alcance,
+                    alcanceReal: parametros.distanciaFSR,
                     timestamp: new Date().toLocaleTimeString()
                 };
-                setHistorialDisparos(prev => [...prev, nuevoDisparo]);
+
+                // Asegurarse de que el historial solo guarde, por ejemplo, los últimos 10
+                setHistorialDisparos(prev => [...prev, nuevoDisparo].slice(-10));
 
                 // Cambiar automáticamente a la gráfica de comparación
                 setGraficoActivo('comparacion');
@@ -63,9 +71,9 @@ function App() {
         return () => {
             ws.close();
         };
-    }, []);
+    }, [angulo, tension, parametros.distanciaFSR]);
 
-    // --- FUNCIONES EXISTENTES ---
+    // --- FUNCIONES DE CONTROL (sin cambios) ---
     const iniciarTension = () => {
         setTensionando(true);
         setConfirmado(false);
@@ -103,7 +111,6 @@ function App() {
         }
     };
 
-    // --- FUNCIÓN: ACTUALIZAR PARÁMETROS ---
     const actualizarParametro = (key, value) => {
         setParametros(prev => ({
             ...prev,
@@ -113,31 +120,16 @@ function App() {
 
     // --- CÁLCULOS DE FÍSICA: TIRO PARABÓLICO ---
     const calcularTrayectoria = () => {
-        // Energía potencial elástica: E = (1/2) * k * x²
-        // Asumimos que la compresión x es propproporcional al tiempo de tensión
-        // Por ejemplo: x = tension * 0.01 metros (1cm por segundo de tensión)
         const compresion = tension * 0.01; // metros
         const energiaPotencial = 0.5 * parametros.constanteResorte * Math.pow(compresion, 2); // Joules
-
-        // Energía cinética inicial: E = (1/2) * m * v²
-        // m en kg: masaProyectil / 1000
         const masaKg = parametros.masaProyectil / 1000;
         const velocidadInicial = Math.sqrt((2 * energiaPotencial) / masaKg); // m/s
-
-        // Componentes de velocidad
         const anguloRad = (angulo * Math.PI) / 180;
         const vx = velocidadInicial * Math.cos(anguloRad);
         const vy = velocidadInicial * Math.sin(anguloRad);
-
-        // Tiempo de vuelo hasta tocar el suelo (y = 0)
-        // y = y0 + vy*t - (1/2)*g*t²
-        // Usando fórmula cuadrática: t = (vy + sqrt(vy² + 2*g*y0)) / g
         const tiempoVuelo = (vy + Math.sqrt(vy * vy + 2 * parametros.gravedad * parametros.alturaInicial)) / parametros.gravedad;
-
-        // Alcance horizontal
         const alcance = vx * tiempoVuelo; // metros
 
-        // Generar puntos de la trayectoria
         const puntos = [];
         const numPuntos = 50;
         for (let i = 0; i <= numPuntos; i++) {
@@ -147,8 +139,8 @@ function App() {
 
             if (y >= 0) {
                 puntos.push({
-                    x: parseFloat((x * 100).toFixed(2)), // Convertir a cm y redondear a 2 decimales
-                    y: parseFloat((y * 100).toFixed(2))  // Convertir a cm y redondear a 2 decimales
+                    x: parseFloat((x * 100).toFixed(2)),
+                    y: parseFloat((y * 100).toFixed(2))
                 });
             }
         }
@@ -162,7 +154,7 @@ function App() {
     };
 
     const trayectoria = calcularTrayectoria();
-    const daAlObjetivo = Math.abs(trayectoria.alcance - parametros.distanciaFSR) <= 3; // Margen de ±3cm
+    const daAlObjetivo = Math.abs(trayectoria.alcance - parametros.distanciaFSR) <= 3;
 
     // --- CÁLCULOS ADICIONALES PARA GRÁFICAS ---
 
@@ -191,6 +183,7 @@ function App() {
         }
         return puntos;
     };
+    const datosVelocidad = calcularVelocidades();
 
     // 2. ENERGÍA VS TIEMPO
     const calcularEnergias = () => {
@@ -224,44 +217,31 @@ function App() {
         }
         return puntos;
     };
+    const datosEnergia = calcularEnergias();
 
-    // 3. MAPA DE CALOR: ÁNGULO VS TENSIÓN
-    const calcularMapaCalor = () => {
-        const datos = [];
-        for (let ang = 0; ang <= 90; ang += 5) {
-            for (let tens = 1; tens <= 10; tens += 1) {
-                const compresion = tens * 0.01;
-                const energiaPotencial = 0.5 * parametros.constanteResorte * Math.pow(compresion, 2);
-                const masaKg = parametros.masaProyectil / 1000;
-                const velocidadInicial = Math.sqrt((2 * energiaPotencial) / masaKg);
-                const anguloRad = (ang * Math.PI) / 180;
-                const vx = velocidadInicial * Math.cos(anguloRad);
-                const vy = velocidadInicial * Math.sin(anguloRad);
-                const tiempoVuelo = (vy + Math.sqrt(vy * vy + 2 * parametros.gravedad * parametros.alturaInicial)) / parametros.gravedad;
-                const alcance = vx * tiempoVuelo * 100;
-                const acierta = Math.abs(alcance - parametros.distanciaFSR) <= 3;
+    // 3. COMPARACIÓN TEÓRICO VS REAL
+    const datosComparacion = historialDisparos.map(disparo => ({
+        name: `Disp. #${disparo.id}`,
+        Teórico: parseFloat(disparo.alcanceTeorico.toFixed(2)),
+        Real: parseFloat(disparo.alcanceReal.toFixed(2)),
+        Angulo: disparo.angulo,
+        Tension: disparo.tension
+    }));
 
-                datos.push({
-                    angulo: ang,
-                    tension: tens,
-                    alcance: parseFloat(alcance.toFixed(2)),
-                    acierta
-                });
-            }
-        }
-        return datos;
-    };
-
-    // 4. TIEMPO DE VUELO VS ÁNGULO
+    // 4. TIEMPO DE VUELO VS ÁNGULO (Cálculo principal)
     const calcularTiempoVueloVsAngulo = () => {
         const puntos = [];
+        // Fijo la tensión actual (compresión) para este análisis
+        const compresion = tension * 0.01;
+        const energiaPotencial = 0.5 * parametros.constanteResorte * Math.pow(compresion, 2);
+        const masaKg = parametros.masaProyectil / 1000;
+        const velocidadInicial = Math.sqrt((2 * energiaPotencial) / masaKg);
+
         for (let ang = 0; ang <= 90; ang += 2) {
-            const compresion = tension * 0.01;
-            const energiaPotencial = 0.5 * parametros.constanteResorte * Math.pow(compresion, 2);
-            const masaKg = parametros.masaProyectil / 1000;
-            const velocidadInicial = Math.sqrt((2 * energiaPotencial) / masaKg);
             const anguloRad = (ang * Math.PI) / 180;
             const vy = velocidadInicial * Math.sin(anguloRad);
+
+            // t = (vy + sqrt(vy² + 2*g*y0)) / g
             const tiempoVuelo = (vy + Math.sqrt(vy * vy + 2 * parametros.gravedad * parametros.alturaInicial)) / parametros.gravedad;
 
             puntos.push({
@@ -271,8 +251,284 @@ function App() {
         }
         return puntos;
     };
+    const datosTiempoVuelo = calcularTiempoVueloVsAngulo();
 
-    // --- ESTILOS ---
+    // 5. MAPA DE CALOR: ÁNGULO VS TENSIÓN (Placeholder)
+    const calcularMapaCalor = () => { /* ... */ return []; };
+    const datosMapaCalor = calcularMapaCalor();
+
+    // --- COMPONENTES DE GRÁFICAS ---
+
+    // Componente 1: Trayectoria (sin cambios)
+    const GraficaTrayectoria = () => (
+        <>
+            <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={trayectoria.puntos} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                        dataKey="x"
+                        label={{ value: 'Distancia (cm)', position: 'insideBottom', offset: -5 }}
+                        domain={[0, 'dataMax']}
+                    />
+                    <YAxis
+                        label={{ value: 'Altura (cm)', angle: -90, position: 'insideLeft' }}
+                        domain={[0, 'dataMax']}
+                    />
+                    <Tooltip
+                        formatter={(value) => `${value.toFixed(2)} cm`}
+                        labelFormatter={(label) => `Distancia: ${label.toFixed(2)} cm`}
+                    />
+                    <Legend />
+                    <Line
+                        type="monotone"
+                        dataKey="y"
+                        stroke="#e67e22"
+                        strokeWidth={3}
+                        name="Trayectoria"
+                        dot={false}
+                    />
+                    <ReferenceLine
+                        x={parametros.distanciaFSR}
+                        stroke={daAlObjetivo ? "#2ecc71" : "#e74c3c"}
+                        strokeWidth={2}
+                        strokeDasharray="5 5"
+                        label={{ value: 'Objetivo', position: 'top' }}
+                    />
+                </LineChart>
+            </ResponsiveContainer>
+
+            {/* INDICADOR DE IMPACTO */}
+            <div style={{
+                marginTop: "15px",
+                padding: "12px 20px",
+                background: daAlObjetivo ? "#d5f4e6" : "#fadbd8",
+                borderLeft: `4px solid ${daAlObjetivo ? "#2ecc71" : "#e74c3c"}`,
+                borderRadius: "6px"
+            }}>
+                <p style={{
+                    margin: 0,
+                    color: daAlObjetivo ? "#27ae60" : "#c0392b",
+                    fontWeight: "600",
+                    fontSize: "15px"
+                }}>
+                    {daAlObjetivo ? "✓ ¡Daría en el objetivo!" : "✗ No alcanzaría el objetivo"}
+                </p>
+                <p style={{
+                    margin: "5px 0 0 0",
+                    fontSize: "13px",
+                    color: "#7f8c8d"
+                }}>
+                    Alcance estimado: <strong>{trayectoria.alcance.toFixed(2)} cm</strong>
+                    {" | "}
+                    Velocidad inicial: <strong>{trayectoria.velocidadInicial.toFixed(2)} m/s</strong>
+                </p>
+            </div>
+        </>
+    );
+
+    // Componente 2: Velocidad vs Tiempo (sin cambios)
+    const GraficaVelocidad = () => (
+        <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={datosVelocidad} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                    dataKey="t"
+                    label={{ value: 'Tiempo (s)', position: 'insideBottom', offset: -5 }}
+                    domain={[0, 'dataMax']}
+                />
+                <YAxis
+                    label={{ value: 'Velocidad (m/s)', angle: -90, position: 'insideLeft' }}
+                    domain={[0, 'dataMax']}
+                />
+                <Tooltip
+                    formatter={(value) => `${value.toFixed(2)} m/s`}
+                    labelFormatter={(label) => `Tiempo: ${label.toFixed(2)} s`}
+                />
+                <Legend />
+                <Line
+                    type="monotone"
+                    dataKey="vTotal"
+                    stroke="#3498db"
+                    strokeWidth={2}
+                    name="Velocidad Total"
+                    dot={false}
+                />
+                <Line
+                    type="monotone"
+                    dataKey="vx"
+                    stroke="#2ecc71"
+                    strokeWidth={2}
+                    name="Velocidad Horizontal (Vx)"
+                    dot={false}
+                />
+                <Line
+                    type="monotone"
+                    dataKey="vy"
+                    stroke="#e74c3c"
+                    strokeWidth={2}
+                    name="Velocidad Vertical (Vy)"
+                    dot={false}
+                />
+            </LineChart>
+        </ResponsiveContainer>
+    );
+
+    // Componente 3: Energía vs Tiempo (sin cambios)
+    const GraficaEnergia = () => (
+        <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={datosEnergia} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                    dataKey="t"
+                    label={{ value: 'Tiempo (s)', position: 'insideBottom', offset: -5 }}
+                    domain={[0, 'dataMax']}
+                />
+                <YAxis
+                    label={{ value: 'Energía (J)', angle: -90, position: 'insideLeft' }}
+                    domain={[0, 'dataMax']}
+                />
+                <Tooltip
+                    formatter={(value) => `${value.toFixed(2)} J`}
+                    labelFormatter={(label) => `Tiempo: ${label.toFixed(2)} s`}
+                />
+                <Legend />
+                <Line
+                    type="monotone"
+                    dataKey="cinetica"
+                    stroke="#f39c12"
+                    strokeWidth={2}
+                    name="Energía Cinética"
+                    dot={false}
+                />
+                <Line
+                    type="monotone"
+                    dataKey="potencial"
+                    stroke="#9b59b6"
+                    strokeWidth={2}
+                    name="Energía Potencial"
+                    dot={false}
+                />
+                <Line
+                    type="monotone"
+                    dataKey="total"
+                    stroke="#1abc9c"
+                    strokeWidth={3}
+                    name="Energía Total"
+                    dot={false}
+                />
+            </LineChart>
+        </ResponsiveContainer>
+    );
+
+    // Componente 4: Gráfica de Comparación Teórico vs Real (sin cambios)
+    const GraficaComparacion = () => {
+        if (datosComparacion.length === 0) {
+            return (
+                <div style={{ textAlign: 'center', padding: '50px', color: '#7f8c8d' }}>
+                    <p>🎯 Realiza un disparo para ver la comparación Teórico vs Real.</p>
+                </div>
+            );
+        }
+
+        return (
+            <ResponsiveContainer width="100%" height={300}>
+                <BarChart
+                    data={datosComparacion}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis
+                        label={{ value: 'Alcance (cm)', angle: -90, position: 'insideLeft' }}
+                    />
+                    <Tooltip
+                        formatter={(value, name, props) => {
+                            if (name === 'Teórico') {
+                                return [`${value} cm`, `Alcance Teórico (Ángulo: ${props.payload.Angulo}°, Tensión: ${props.payload.Tension}s)`];
+                            }
+                            return [`${value} cm`, 'Alcance Real (Impacto FSR)'];
+                        }}
+                    />
+                    <Legend />
+                    <Bar dataKey="Teórico" fill="#e67e22" name="Alcance Teórico" />
+                    <Bar dataKey="Real" fill="#3498db" name="Alcance Real (FSR)" />
+                </BarChart>
+            </ResponsiveContainer>
+        );
+    };
+
+    // Componente 5: Tiempo de Vuelo vs Ángulo (NUEVA)
+    const GraficaTiempoVuelo = () => {
+        const maxTiempo = datosTiempoVuelo.reduce((max, p) => (p.tiempo > max ? p.tiempo : max), 0);
+        const anguloMax = datosTiempoVuelo.find(p => p.tiempo === maxTiempo)?.angulo;
+
+        return (
+            <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={datosTiempoVuelo} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                        dataKey="angulo"
+                        label={{ value: 'Ángulo (grados)', position: 'insideBottom', offset: -5 }}
+                    />
+                    <YAxis
+                        label={{ value: 'Tiempo de Vuelo (s)', angle: -90, position: 'insideLeft' }}
+                    />
+                    <Tooltip
+                        formatter={(value) => `${value.toFixed(3)} s`}
+                        labelFormatter={(label) => `Ángulo: ${label}°`}
+                    />
+                    <Legend />
+                    <Line
+                        type="monotone"
+                        dataKey="tiempo"
+                        stroke="#8e44ad" // Morado
+                        strokeWidth={2}
+                        name={`Tiempo de Vuelo (Tensión: ${tension}s)`}
+                        dot={false}
+                    />
+                    {/* Referencia para el ángulo que da el máximo tiempo de vuelo (90 grados si y0=0) */}
+                    {anguloMax && (
+                        <ReferenceLine
+                            x={anguloMax}
+                            stroke="#c0392b"
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                            label={{ value: `${anguloMax}° (Max T)`, position: 'top', fill: '#c0392b' }}
+                        />
+                    )}
+                </LineChart>
+            </ResponsiveContainer>
+        );
+    };
+
+    // Componente 6: Mapa de Calor (Placeholder)
+    const GraficaMapaCalor = () => (
+        <div style={{ textAlign: 'center', padding: '50px', color: '#7f8c8d' }}>
+            <p>Mapa de alcance Teórico (Ángulo vs Tensión) no implementado con Recharts en este ejemplo.</p>
+        </div>
+    );
+
+    // Función para renderizar la gráfica activa
+    const renderizarGrafica = () => {
+        switch (graficoActivo) {
+            case 'trayectoria':
+                return <GraficaTrayectoria />;
+            case 'velocidad':
+                return <GraficaVelocidad />;
+            case 'energia':
+                return <GraficaEnergia />;
+            case 'comparacion':
+                return <GraficaComparacion />;
+            case 'tiempoVuelo': // Nuevo caso
+                return <GraficaTiempoVuelo />;
+            case 'mapaCalor':
+                return <GraficaMapaCalor />;
+            default:
+                return <GraficaTrayectoria />;
+        }
+    };
+
+    // --- ESTILOS (sin cambios) ---
     const buttonStyle = (isTensioning) => ({
         padding: "15px 35px",
         fontSize: "18px",
@@ -427,82 +683,66 @@ function App() {
                 boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
                 overflowY: "auto"
             }}>
+                {/* SELECTOR DE GRÁFICAS */}
+                <div style={{
+                    marginBottom: '30px',
+                    textAlign: 'center'
+                }}>
+                    <label style={{
+                        display: "block",
+                        marginBottom: "10px",
+                        fontSize: "18px",
+                        color: '#2c3e50'
+                    }}>
+                        Seleccionar Gráfica:
+                    </label>
+                    <select
+                        value={graficoActivo}
+                        onChange={(e) => setGraficoActivo(e.target.value)}
+                        style={{
+                            padding: '10px 15px',
+                            fontSize: '16px',
+                            borderRadius: '8px',
+                            border: '2px solid #3498db',
+                            backgroundColor: 'white',
+                            color: '#2c3e50',
+                            cursor: 'pointer',
+                            maxWidth: '400px',
+                            width: '100%',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                        }}
+                    >
+                        <option value="trayectoria">Trayectoria (Altura vs. Distancia)</option>
+                        <option value="velocidad">Velocidad vs. Tiempo</option>
+                        <option value="energia">Energía vs. Tiempo</option>
+                        <option value="tiempoVuelo">Tiempo de Vuelo vs. Ángulo</option> {/* NUEVA OPCIÓN */}
+                        <option value="comparacion">Comparación: Teórico vs. Real (Historial)</option>
+                        <option value="mapaCalor">Mapa de Alcance (Ángulo vs. Tensión)</option>
+                    </select>
+                </div>
+
                 <h2 style={{
                     color: "#2c3e50",
                     marginBottom: '30px',
                     textAlign: 'center'
                 }}>
-                    Trayectoria Teórica
+                    {graficoActivo === 'trayectoria' && 'Trayectoria Teórica'}
+                    {graficoActivo === 'velocidad' && 'Análisis de Velocidad vs. Tiempo'}
+                    {graficoActivo === 'energia' && 'Análisis de Energía vs. Tiempo'}
+                    {graficoActivo === 'comparacion' && 'Historial de Alcance: Teórico vs. Real 📊'}
+                    {graficoActivo === 'tiempoVuelo' && 'Tiempo de Vuelo vs. Ángulo de Lanzamiento ⏱️'} {/* NUEVO TÍTULO */}
+                    {graficoActivo === 'mapaCalor' && 'Mapa de Alcance Teórico'}
                 </h2>
 
-                {/* GRÁFICA DE TRAYECTORIA */}
+                {/* CONTENEDOR DE GRÁFICA ACTIVA */}
                 <div style={{
                     background: "#f8f9fa",
                     padding: "20px",
                     borderRadius: "12px",
-                    marginBottom: "30px"
+                    marginBottom: "30px",
+                    minHeight: '350px'
                 }}>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={trayectoria.puntos} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis
-                                dataKey="x"
-                                label={{ value: 'Distancia (cm)', position: 'insideBottom', offset: -5 }}
-                                domain={[0, 'dataMax']}
-                            />
-                            <YAxis
-                                label={{ value: 'Altura (cm)', angle: -90, position: 'insideLeft' }}
-                                domain={[0, 'dataMax']}
-                            />
-                            <Tooltip
-                                formatter={(value) => `${value.toFixed(2)} cm`}
-                                labelFormatter={(label) => `Distancia: ${label.toFixed(2)} cm`}
-                            />
-                            <Legend />
-                            <Line
-                                type="monotone"
-                                dataKey="y"
-                                stroke="#e67e22"
-                                strokeWidth={3}
-                                name="Trayectoria"
-                                dot={false}
-                            />
-                            <ReferenceLine
-                                x={parametros.distanciaFSR}
-                                stroke={daAlObjetivo ? "#2ecc71" : "#e74c3c"}
-                                strokeWidth={2}
-                                strokeDasharray="5 5"
-                                label={{ value: 'Objetivo', position: 'top' }}
-                            />
-                        </LineChart>
-                    </ResponsiveContainer>
-
-                    {/* INDICADOR DE IMPACTO */}
-                    <div style={{
-                        marginTop: "15px",
-                        padding: "12px 20px",
-                        background: daAlObjetivo ? "#d5f4e6" : "#fadbd8",
-                        borderLeft: `4px solid ${daAlObjetivo ? "#2ecc71" : "#e74c3c"}`,
-                        borderRadius: "6px"
-                    }}>
-                        <p style={{
-                            margin: 0,
-                            color: daAlObjetivo ? "#27ae60" : "#c0392b",
-                            fontWeight: "600",
-                            fontSize: "15px"
-                        }}>
-                            {daAlObjetivo ? "✓ ¡Daría en el objetivo!" : "✗ No alcanzaría el objetivo"}
-                        </p>
-                        <p style={{
-                            margin: "5px 0 0 0",
-                            fontSize: "13px",
-                            color: "#7f8c8d"
-                        }}>
-                            Alcance estimado: <strong>{trayectoria.alcance.toFixed(2)} cm</strong>
-                            {" | "}
-                            Velocidad inicial: <strong>{trayectoria.velocidadInicial.toFixed(2)} m/s</strong>
-                        </p>
-                    </div>
+                    {renderizarGrafica()}
                 </div>
 
                 {/* INFO ADICIONAL */}
@@ -520,12 +760,12 @@ function App() {
                         lineHeight: "1.6"
                     }}>
                         <strong>ℹ️ Nota:</strong> La trayectoria se calcula usando física clásica de tiro parabólico.
-                        Se asume compresión del resorte = tensión × 1cm/s.
+                        La gráfica de **Tiempo de Vuelo vs. Ángulo** asume la **tensión actual ({tension} segundos)** como constante.
                     </p>
                 </div>
             </div>
 
-            {/* PANEL DERECHO: TABLA DE PARÁMETROS */}
+            {/* PANEL DERECHO: TABLA DE PARÁMETROS (sin cambios) */}
             <div style={{
                 width: "400px",
                 background: "white",
