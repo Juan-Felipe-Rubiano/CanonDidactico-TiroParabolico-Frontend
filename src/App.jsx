@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Referenc
 
 const API_URL = "http://localhost:8080/control";
 
+
 function App() {
     // --- ESTADO EXISTENTE ---
     const [angulo, setAngulo] = useState(0);
