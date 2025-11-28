@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-// Incluimos BarChart y Bar para la nueva gráfica
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
 const API_URL = "http://localhost:8080/control";
@@ -24,13 +23,13 @@ function App() {
     // --- ESTADO: PARÁMETROS FÍSICOS ---
     const [parametros, setParametros] = useState({
         constanteResorte: 130.4, // N/m
-        distanciaFSR: 100, // cm (Este es el ALCANCE REAL asumido si hay impacto)
+        distanciaFSR: 100, // cm (ALCANCE REAL asumido si hay impacto)
         masaProyectil: 50, // gramos
-        gravedad: 9.81, // m/s²
+        gravedad: 9.81, // m/s^2
         alturaInicial: 0 // metros
     });
 
-    // --- WEBSOCKET ---
+    // --- SOCKET ---
     useEffect(() => {
         const ws = new WebSocket("ws://localhost:8080/ws/fsr");
 
@@ -43,7 +42,6 @@ function App() {
             if (event.data === "Impacto detectado") {
                 setImpacto(true);
 
-                // --- RESOLUCIÓN DE CÓMO GUARDAR LO REAL Y LO TEÓRICO ---
                 const trayectoriaActual = calcularTrayectoria();
 
                 const nuevoDisparo = {
@@ -55,7 +53,6 @@ function App() {
                     timestamp: new Date().toLocaleTimeString()
                 };
 
-                // Asegurarse de que el historial solo guarde, por ejemplo, los últimos 10
                 setHistorialDisparos(prev => [...prev, nuevoDisparo].slice(-10));
 
                 // Cambiar automáticamente a la gráfica de comparación
@@ -74,7 +71,6 @@ function App() {
         };
     }, [angulo, tension, parametros.distanciaFSR]);
 
-    // --- FUNCIONES DE CONTROL (sin cambios) ---
     const iniciarTension = () => {
         setTensionando(true);
         setConfirmado(false);
@@ -119,7 +115,6 @@ function App() {
         }));
     };
 
-    // --- CÁLCULOS DE FÍSICA: TIRO PARABÓLICO ---
     const calcularTrayectoria = () => {
         const compresion = tension * 0.01; // metros
         const energiaPotencial = 0.5 * parametros.constanteResorte * Math.pow(compresion, 2); // Joules
@@ -156,8 +151,6 @@ function App() {
 
     const trayectoria = calcularTrayectoria();
     const daAlObjetivo = Math.abs(trayectoria.alcance - parametros.distanciaFSR) <= 3;
-
-    // --- CÁLCULOS ADICIONALES PARA GRÁFICAS ---
 
     // 1. VELOCIDAD VS TIEMPO
     const calcularVelocidades = () => {
@@ -229,10 +222,9 @@ function App() {
         Tension: disparo.tension
     }));
 
-    // 4. TIEMPO DE VUELO VS ÁNGULO (Cálculo principal)
+    // 4. TIEMPO DE VUELO VS ÁNGULO
     const calcularTiempoVueloVsAngulo = () => {
         const puntos = [];
-        // Fijo la tensión actual (compresión) para este análisis
         const compresion = tension * 0.01;
         const energiaPotencial = 0.5 * parametros.constanteResorte * Math.pow(compresion, 2);
         const masaKg = parametros.masaProyectil / 1000;
@@ -242,7 +234,6 @@ function App() {
             const anguloRad = (ang * Math.PI) / 180;
             const vy = velocidadInicial * Math.sin(anguloRad);
 
-            // t = (vy + sqrt(vy² + 2*g*y0)) / g
             const tiempoVuelo = (vy + Math.sqrt(vy * vy + 2 * parametros.gravedad * parametros.alturaInicial)) / parametros.gravedad;
 
             puntos.push({
@@ -254,11 +245,6 @@ function App() {
     };
     const datosTiempoVuelo = calcularTiempoVueloVsAngulo();
 
-    // 5. MAPA DE CALOR: ÁNGULO VS TENSIÓN (Placeholder)
-    const calcularMapaCalor = () => { /* ... */ return []; };
-    const datosMapaCalor = calcularMapaCalor();
-
-    // --- COMPONENTES DE GRÁFICAS ---
 
     // Componente 1: Trayectoria (sin cambios)
     const GraficaTrayectoria = () => (
@@ -458,7 +444,7 @@ function App() {
         );
     };
 
-    // Componente 5: Tiempo de Vuelo vs Ángulo (NUEVA)
+    // Componente 5: Tiempo de Vuelo vs Ángulo
     const GraficaTiempoVuelo = () => {
         const maxTiempo = datosTiempoVuelo.reduce((max, p) => (p.tiempo > max ? p.tiempo : max), 0);
         const anguloMax = datosTiempoVuelo.find(p => p.tiempo === maxTiempo)?.angulo;
@@ -502,14 +488,7 @@ function App() {
         );
     };
 
-    // Componente 6: Mapa de Calor (Placeholder)
-    const GraficaMapaCalor = () => (
-        <div style={{ textAlign: 'center', padding: '50px', color: '#7f8c8d' }}>
-            <p>Mapa de alcance Teórico (Ángulo vs Tensión) no implementado con Recharts en este ejemplo.</p>
-        </div>
-    );
 
-    // Función para renderizar la gráfica activa
     const renderizarGrafica = () => {
         switch (graficoActivo) {
             case 'trayectoria':
@@ -522,14 +501,11 @@ function App() {
                 return <GraficaComparacion />;
             case 'tiempoVuelo': // Nuevo caso
                 return <GraficaTiempoVuelo />;
-            case 'mapaCalor':
-                return <GraficaMapaCalor />;
             default:
                 return <GraficaTrayectoria />;
         }
     };
 
-    // --- ESTILOS (sin cambios) ---
     const buttonStyle = (isTensioning) => ({
         padding: "15px 35px",
         fontSize: "18px",
@@ -760,8 +736,8 @@ function App() {
                         color: "#34495e",
                         lineHeight: "1.6"
                     }}>
-                        <strong>ℹ️ Nota:</strong> La trayectoria se calcula usando física clásica de tiro parabólico.
-                        La gráfica de **Tiempo de Vuelo vs. Ángulo** asume la **tensión actual ({tension} segundos)** como constante.
+                        <strong>ℹ️ Nota:</strong> La trayectoria se calcula usando tiro parabólico.
+                        La gráfica de "Tiempo de Vuelo vs. Ángulo" asume la tensión actual ({tension} segundos) como constante.
                     </p>
                 </div>
             </div>
